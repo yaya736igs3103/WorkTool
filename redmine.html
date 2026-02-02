@@ -28,16 +28,59 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #94a3b8; 
         }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fadeIn {
+            animation: fadeIn 0.3s ease-out forwards;
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 font-sans">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        // Destructure hooks
+        const { useState, useEffect, useMemo, useCallback } = React;
+
+        // --- Helper Functions (Pure) ---
+        const isToday = (dateString) => {
+            if (!dateString) return false;
+            const today = new Date();
+            const date = new Date(dateString);
+            return date.getDate() === today.getDate() &&
+                date.getMonth() === today.getMonth() &&
+                date.getFullYear() === today.getFullYear();
+        };
+
+        const isPast = (dateString) => {
+            if (!dateString) return false;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0); 
+            const date = new Date(dateString);
+            return date < today;
+        };
+
+        const getBaseUrl = (inputUrl) => {
+            try {
+                const urlObj = new URL(inputUrl);
+                return urlObj.origin; 
+            } catch (e) {
+                return inputUrl.replace(/\/$/, '');
+            }
+        };
+
+        const getStatusColor = (status) => {
+            const s = status.toLowerCase();
+            if (s === 'new' || s === '新建') return 'bg-blue-50 text-blue-700 border-blue-200';
+            if (s.includes('progress') || s.includes('進行')) return 'bg-yellow-50 text-yellow-700 border-yellow-200';
+            if (s === 'closed' || s === 'resolved' || s.includes('已解決') || s.includes('結案')) return 'bg-slate-100 text-slate-500 border-slate-200';
+            if (s === 'feedback' || s.includes('回饋')) return 'bg-purple-50 text-purple-700 border-purple-200';
+            return 'bg-slate-50 text-slate-700 border-slate-200';
+        };
 
         // --- Icon Components (SVG) ---
-        // 為了讓 HTML 單一檔案運作，我們直接定義簡單的 SVG Component
         const IconBase = ({ children, className, color }) => (
             <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} style={{ color }}>
                 {children}
@@ -52,6 +95,9 @@
         const RefreshCw = (props) => <IconBase {...props}><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></IconBase>;
         const Search = (props) => <IconBase {...props}><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></IconBase>;
         const User = (props) => <IconBase {...props}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></IconBase>;
+        const Database = (props) => <IconBase {...props}><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></IconBase>;
+        const Zap = (props) => <IconBase {...props}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></IconBase>;
+        const Timer = (props) => <IconBase {...props}><line x1="10" y1="2" x2="14" y2="2"></line><line x1="12" y1="14" x2="15" y2="11"></line><circle cx="12" cy="14" r="8"></circle></IconBase>;
 
         // --- Main Component ---
         const RedmineDashboard = () => {
@@ -81,15 +127,28 @@
                 projectId: safeGetStorage('redmine_projectId', '')
             }));
 
-            // --- Proxy State ---
-            const [useProxy, setUseProxy] = useState(() => {
-                const saved = safeGetStorage('redmine_useProxy', 'true');
-                return saved === 'true';
+            // --- Proxy Mode State ---
+            const [proxyMode, setProxyMode] = useState(() => {
+                const oldUseProxy = localStorage.getItem('redmine_useProxy');
+                if (oldUseProxy === 'false') return 'direct';
+                const savedMode = safeGetStorage('redmine_proxyMode', 'public');
+                return savedMode;
+            });
+
+            // --- Custom Proxy URL State ---
+            const [customProxyUrl, setCustomProxyUrl] = useState(() => {
+                return safeGetStorage('redmine_customProxyUrl', 'http://YOUR_INTERNAL_PROXY/?url=');
             });
 
             // --- Show Only Mine State ---
             const [showOnlyMine, setShowOnlyMine] = useState(() => {
                 const saved = safeGetStorage('redmine_showOnlyMine', 'false');
+                return saved === 'true';
+            });
+
+            // --- Auto Refresh State ---
+            const [autoRefresh, setAutoRefresh] = useState(() => {
+                const saved = safeGetStorage('redmine_autoRefresh', 'true');
                 return saved === 'true';
             });
 
@@ -101,168 +160,255 @@
             }, [config]);
 
             useEffect(() => {
-                safeSetStorage('redmine_useProxy', String(useProxy));
-            }, [useProxy]);
+                safeSetStorage('redmine_proxyMode', proxyMode);
+            }, [proxyMode]);
+
+            useEffect(() => {
+                safeSetStorage('redmine_customProxyUrl', customProxyUrl);
+            }, [customProxyUrl]);
 
             useEffect(() => {
                 safeSetStorage('redmine_showOnlyMine', String(showOnlyMine));
             }, [showOnlyMine]);
 
+            useEffect(() => {
+                safeSetStorage('redmine_autoRefresh', String(autoRefresh));
+            }, [autoRefresh]);
+
             // App State
             const [issues, setIssues] = useState([]);
             const [currentUser, setCurrentUser] = useState(null);
             const [loading, setLoading] = useState(false);
+            const [statusMessage, setStatusMessage] = useState(''); 
             const [error, setError] = useState(null);
             const [activeTab, setActiveTab] = useState('all');
             const [isDemo, setIsDemo] = useState(false);
+            const [lastUpdated, setLastUpdated] = useState(null);
+            const [loadedFromCache, setLoadedFromCache] = useState(false);
 
-            // Helpers
-            const isToday = (dateString) => {
-                if (!dateString) return false;
-                const today = new Date();
-                const date = new Date(dateString);
-                return date.getDate() === today.getDate() &&
-                    date.getMonth() === today.getMonth() &&
-                    date.getFullYear() === today.getFullYear();
+            // --- Cache Logic ---
+            const getCacheKey = () => {
+                return `redmine_cache_${config.url.replace(/[^a-zA-Z0-9]/g, '')}_${config.projectId || 'all'}`;
             };
 
-            const isPast = (dateString) => {
-                if (!dateString) return false;
-                const today = new Date();
-                today.setHours(0, 0, 0, 0); 
-                const date = new Date(dateString);
-                return date < today;
-            };
-
-            const getBaseUrl = (inputUrl) => {
-                try {
-                    const urlObj = new URL(inputUrl);
-                    return urlObj.origin; 
-                } catch (e) {
-                    return inputUrl.replace(/\/$/, '');
+            // Load Cache on Mount
+            useEffect(() => {
+                const cacheKey = getCacheKey();
+                const cachedDataRaw = localStorage.getItem(cacheKey);
+                
+                if (cachedDataRaw) {
+                    try {
+                        const cached = JSON.parse(cachedDataRaw);
+                        const CACHE_DURATION = 10 * 60 * 1000;
+                        if (Date.now() - cached.timestamp < CACHE_DURATION) {
+                            setIssues(cached.issues);
+                            setCurrentUser(cached.user);
+                            setLastUpdated(new Date(cached.timestamp));
+                            setLoadedFromCache(true);
+                            console.log("Loaded from cache");
+                        }
+                    } catch (e) {
+                        console.warn("Failed to load cache", e);
+                    }
                 }
-            };
+            }, []);
 
-            const getStatusColor = (status) => {
-                const s = status.toLowerCase();
-                if (s === 'new' || s === '新建') return 'bg-blue-50 text-blue-700 border-blue-200';
-                if (s.includes('progress') || s.includes('進行')) return 'bg-yellow-50 text-yellow-700 border-yellow-200';
-                if (s === 'closed' || s === 'resolved' || s.includes('已解決') || s.includes('結案')) return 'bg-slate-100 text-slate-500 border-slate-200';
-                if (s === 'feedback' || s.includes('回饋')) return 'bg-purple-50 text-purple-700 border-purple-200';
-                return 'bg-slate-50 text-slate-700 border-slate-200';
-            };
-
-            // Fetch Data Logic
-            const fetchData = async () => {
+            // --- Fetch Data Logic (Memoized for Interval) ---
+            const fetchData = useCallback(async () => {
                 const cleanApiKey = config.apiKey.trim();
 
                 if (!cleanApiKey && !isDemo) {
-                setError('請輸入 API Token');
-                return;
+                    setError('請輸入 API Token');
+                    return;
                 }
 
                 setLoading(true);
                 setError(null);
-                setIssues([]);
-
-                if (isDemo) {
-                simulateDemoData();
-                return;
-                }
-
-                const fetchWithProxy = async (endpoint, params = '') => {
-                const baseUrl = getBaseUrl(config.url);
-                const separator = endpoint.includes('?') ? '&' : '?';
-                const cacheBuster = `&_t=${Date.now()}`;
+                setLoadedFromCache(false);
+                setStatusMessage('讀取中...');
                 
-                const targetUrl = `${baseUrl}${endpoint}${separator}key=${cleanApiKey}${params}${cacheBuster}`;
-
-                if (!useProxy) {
-                    const res = await fetch(targetUrl, { 
-                    headers: { 'X-Redmine-API-Key': cleanApiKey } 
-                    });
-                    if (!res.ok) {
-                    if (res.status === 401) throw new Error('API Token 無效 (401)');
-                    throw new Error(`請求失敗 (${res.status})`);
-                    }
-                    return await res.json();
+                if (isDemo) {
+                    setTimeout(() => {
+                        const demoUser = { id: 1, firstname: 'Admin', lastname: 'User' };
+                        setCurrentUser(demoUser);
+                        const todayStr = new Date().toISOString().split('T')[0];
+                        const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+                        const demoIssues = [
+                            { id: 101, status: { name: 'New' }, subject: '伺服器異常排查', assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 2, estimated_hours: 4, project: { name: 'Infra' } },
+                            { id: 102, status: { name: 'In Progress' }, subject: '前端介面優化', assigned_to: { id: 2, name: 'John Doe' }, due_date: yesterdayStr, spent_hours: 10, estimated_hours: 8, project: { name: 'Web App' } },
+                            { id: 103, status: { name: 'Feedback' }, subject: 'API文件更新', assigned_to: { id: 1, name: 'Admin User' }, due_date: null, spent_hours: 1, estimated_hours: 2, project: { name: 'Documentation' } },
+                            { id: 104, status: { name: 'New' }, subject: '資料庫遷移', assigned_to: { id: 3, name: 'Jane Smith' }, due_date: yesterdayStr, spent_hours: 0, estimated_hours: 5, project: { name: 'Backend' } },
+                            { id: 105, status: { name: 'In Progress' }, subject: '修正登入 Bug', assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 5, estimated_hours: 3, project: { name: 'Web App' } },
+                        ];
+                        setIssues(demoIssues);
+                        setLastUpdated(new Date());
+                        setLoading(false);
+                        setStatusMessage('');
+                    }, 800);
+                    return;
                 }
 
-                const proxyProviders = [
-                    { name: 'CorsProxy.io', fn: (url) => `https://corsproxy.io/?${encodeURIComponent(url)}` },
-                    { name: 'AllOrigins', fn: (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
-                ];
-
-                let lastError = null;
-
-                for (const provider of proxyProviders) {
-                    try {
-                        const finalUrl = provider.fn(targetUrl);
-                        const res = await fetch(finalUrl);
-                        
-                        if (res.ok) {
-                            return await res.json();
-                        } else {
-                            if (res.status === 401 || res.status === 403) {
-                            throw new Error('API Token 無效或無權限存取 (401/403)');
-                            }
-                            lastError = new Error(`Proxy ${provider.name} error: ${res.status}`);
-                            continue; 
-                        }
-                    } catch (e) {
-                        lastError = e;
-                        console.warn(`Proxy ${provider.name} failed:`, e);
-                    }
-                }
-
-                throw lastError || new Error('無法連線到 Redmine，所有代理伺服器皆無回應。請檢查網址是否正確。');
+                // Inner fetch helper
+                const performFetch = async (url, options = {}) => {
+                     // Note: fetch without AbortSignal has no default timeout in JS (browser handles it, usually very long)
+                     const res = await fetch(url, options);
+                     if (!res.ok) {
+                         if (res.status === 401 || res.status === 403) {
+                             throw new Error('API Token 無效或無權限存取 (401/403)');
+                         }
+                         throw new Error(`請求失敗 (${res.status})`);
+                     }
+                     return await res.json();
                 };
 
-                try {
-                let issueParams = '&limit=100&status_id=open';
-                if (config.projectId) {
-                    issueParams += `&project_id=${config.projectId}`;
+                const fetchWithProxy = async (endpoint, params = '') => {
+                    const baseUrl = getBaseUrl(config.url);
+                    const separator = endpoint.includes('?') ? '&' : '?';
+                    const cacheBuster = `&_t=${Date.now()}`;
+                    const targetUrl = `${baseUrl}${endpoint}${separator}key=${cleanApiKey}${params}${cacheBuster}`;
+
+                    if (proxyMode === 'direct') {
+                        try {
+                            return await performFetch(targetUrl, { headers: { 'X-Redmine-API-Key': cleanApiKey } });
+                        } catch (e) {
+                            if (e.name === 'TypeError' || e.message.includes('Failed to fetch')) throw new Error('CORS_ERROR');
+                            throw e;
+                        }
+                    }
+
+                    if (proxyMode === 'custom') {
+                        if (!customProxyUrl) throw new Error('請輸入自訂 Proxy 網址');
+                        try {
+                            const finalUrl = `${customProxyUrl}${encodeURIComponent(targetUrl)}`;
+                            return await performFetch(finalUrl);
+                        } catch (e) {
+                             if (e.name === 'TypeError' || e.message.includes('Failed to fetch')) throw new Error('CUSTOM_PROXY_ERROR');
+                            throw e;
+                        }
+                    }
+
+                    // Proxy Loop
+                    const proxyProviders = [
+                        { name: 'CorsProxy.io', fn: (url) => `https://corsproxy.io/?${encodeURIComponent(url)}` },
+                        { name: 'AllOrigins', fn: (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
+                    ];
+
+                    let lastError = null;
+                    for (const provider of proxyProviders) {
+                        try {
+                            const finalUrl = provider.fn(targetUrl);
+                            const res = await fetch(finalUrl);
+                            if (res.ok) return await res.json();
+                            if (res.status === 401 || res.status === 403) throw new Error('API Token 無效或無權限存取 (401/403)');
+                            lastError = new Error(`Proxy ${provider.name} error: ${res.status}`);
+                        } catch (e) {
+                            lastError = e;
+                            console.warn(`Proxy ${provider.name} failed:`, e);
+                        }
+                    }
+                    throw lastError || new Error('無法連線到 Redmine，所有代理伺服器皆無回應。請檢查網址是否正確。');
+                };
+
+                // --- Retry Logic Wrapper ---
+                // 1 Initial attempt + 5 Retries = 6 Total Attempts
+                const MAX_ATTEMPTS = 6;
+                let finalError = null;
+
+                for (let i = 0; i < MAX_ATTEMPTS; i++) {
+                    try {
+                        if (i > 0) {
+                            // Interval: 5 seconds
+                            setStatusMessage(`連線不穩，正在重試 (${i}/${MAX_ATTEMPTS - 1})...`);
+                            await new Promise(r => setTimeout(r, 5000)); 
+                        }
+
+                        let issueParams = '&limit=100&status_id=open';
+                        if (config.projectId) {
+                            issueParams += `&project_id=${config.projectId}`;
+                        }
+
+                        const [userData, issuesData] = await Promise.all([
+                            fetchWithProxy('/users/current.json'),
+                            fetchWithProxy('/issues.json', issueParams)
+                        ]);
+
+                        // If successful
+                        setCurrentUser(userData.user);
+                        setIssues(issuesData.issues);
+                        const now = new Date();
+                        setLastUpdated(now);
+
+                        try {
+                            const cacheKey = getCacheKey();
+                            const cachePayload = { timestamp: now.getTime(), user: userData.user, issues: issuesData.issues };
+                            localStorage.setItem(cacheKey, JSON.stringify(cachePayload));
+                        } catch (e) { console.warn("Failed to save cache", e); }
+
+                        setLoading(false);
+                        setStatusMessage('');
+                        return; // Exit loop and function
+
+                    } catch (err) {
+                        console.warn(`Fetch attempt ${i + 1} failed:`, err);
+                        finalError = err;
+                        
+                        // Fatal errors that shouldn't be retried
+                        if (err.message.includes('401') || err.message.includes('403') || 
+                            err.message === 'CORS_ERROR' || err.message === 'CUSTOM_PROXY_ERROR') {
+                            break; 
+                        }
+                    }
                 }
 
-                const [userData, issuesData] = await Promise.all([
-                    fetchWithProxy('/users/current.json'),
-                    fetchWithProxy('/issues.json', issueParams)
-                ]);
-
-                setCurrentUser(userData.user);
-                setIssues(issuesData.issues);
-                setActiveTab('all');
-
-                } catch (err) {
-                console.error(err);
-                let errMsg = err.message || '連線發生錯誤';
-                if (errMsg.includes('Failed to fetch')) {
-                    errMsg = '無法建立連線 (Failed to fetch)。可能是免費 Proxy 服務目前皆繁忙，請稍後再試。';
+                // If loop exhausted
+                setLoading(false);
+                setStatusMessage('');
+                
+                let errMsg = finalError.message || '連線發生錯誤';
+                if (finalError.message === 'CORS_ERROR') {
+                    const isFileProtocol = window.location.protocol === 'file:';
+                    errMsg = (
+                        <span>
+                            <b>直連失敗 (CORS 阻擋)</b><br/>
+                            您選擇了「直連模式」，但瀏覽器擋下了請求。<br/>
+                            <ul className="list-disc pl-5 mt-2 space-y-1 text-sm">
+                                {isFileProtocol && (
+                                    <li className="text-red-600 font-bold">
+                                        [關鍵] 偵測到您使用檔案開啟 (file://)。<br/>
+                                        請至 chrome://extensions 找到該套件，開啟「允許存取檔案網址 (Allow access to file URLs)」。
+                                    </li>
+                                )}
+                                <li>確認擴充套件 <b>Allow CORS: Access-Control-Allow-Origin</b> 已啟用。</li>
+                                <li>
+                                    <a href={config.url} target="_blank" className="underline text-blue-600 hover:text-blue-800">
+                                        點此開啟 Redmine
+                                    </a>
+                                    ，確認是否出現「憑證不安全」警告。若有，請先點擊「繼續前往」。
+                                </li>
+                            </ul>
+                        </span>
+                    );
+                } else if (finalError.message === 'CUSTOM_PROXY_ERROR') {
+                    errMsg = (<span><b>自訂 Proxy 連線失敗</b><br/>無法連線至：{customProxyUrl}</span>);
+                } else if (errMsg.includes('Failed to fetch')) {
+                    errMsg = '無法建立連線。已嘗試自動重連但失敗。可能是網路問題或服務繁忙。';
                 }
                 setError(errMsg);
-                } finally {
-                setLoading(false);
-                }
-            };
 
-            const simulateDemoData = () => {
-                setTimeout(() => {
-                const demoUser = { id: 1, firstname: 'Admin', lastname: 'User' };
-                setCurrentUser(demoUser);
+            }, [config, isDemo, proxyMode, customProxyUrl]);
+
+            // --- Interval Effect for Auto Refresh ---
+            useEffect(() => {
+                if (!autoRefresh) return;
                 
-                const todayStr = new Date().toISOString().split('T')[0];
-                const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
-                
-                setIssues([
-                    { id: 101, status: { name: 'New' }, subject: '伺服器異常排查', assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 2, estimated_hours: 4, project: { name: 'Infra' } },
-                    { id: 102, status: { name: 'In Progress' }, subject: '前端介面優化', assigned_to: { id: 2, name: 'John Doe' }, due_date: yesterdayStr, spent_hours: 10, estimated_hours: 8, project: { name: 'Web App' } },
-                    { id: 103, status: { name: 'Feedback' }, subject: 'API文件更新', assigned_to: { id: 1, name: 'Admin User' }, due_date: null, spent_hours: 1, estimated_hours: 2, project: { name: 'Documentation' } },
-                    { id: 104, status: { name: 'New' }, subject: '資料庫遷移', assigned_to: { id: 3, name: 'Jane Smith' }, due_date: yesterdayStr, spent_hours: 0, estimated_hours: 5, project: { name: 'Backend' } },
-                    { id: 105, status: { name: 'In Progress' }, subject: '修正登入 Bug', assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 5, estimated_hours: 3, project: { name: 'Web App' } },
-                ]);
-                setLoading(false);
-                }, 800);
-            };
+                const interval = setInterval(() => {
+                    console.log('Auto refreshing data...');
+                    fetchData();
+                }, 5 * 60 * 1000); // 5 minutes
+
+                return () => clearInterval(interval);
+            }, [autoRefresh, fetchData]);
+
 
             // Filter Logic
             const stats = useMemo(() => {
@@ -328,77 +474,129 @@
                         <p className="text-slate-400 text-sm mt-1">專案監控與工時分析工具</p>
                     </div>
                     
-                    <div className="flex flex-wrap items-center gap-2 bg-slate-800 p-2 rounded-lg border border-slate-700">
-                        <input 
-                        type="text" 
-                        placeholder="API Token" 
-                        className="bg-slate-700 text-white px-3 py-1.5 rounded text-sm outline-none focus:ring-2 focus:ring-blue-500 w-32 md:w-48 transition-all"
-                        value={config.apiKey}
-                        onChange={(e) => setConfig({...config, apiKey: e.target.value})}
-                        />
-                        <input 
-                        type="text" 
-                        placeholder="Project ID (選填)" 
-                        className="bg-slate-700 text-white px-3 py-1.5 rounded text-sm outline-none focus:ring-2 focus:ring-blue-500 w-28 transition-all"
-                        value={config.projectId}
-                        onChange={(e) => setConfig({...config, projectId: e.target.value})}
-                        />
-                        <button 
-                        onClick={fetchData}
-                        disabled={loading}
-                        className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded text-sm font-medium flex items-center gap-2 transition-colors disabled:opacity-50"
-                        >
-                        {loading ? <RefreshCw className="animate-spin w-4 h-4" /> : <Search className="w-4 h-4" />}
-                        分析
-                        </button>
+                    <div className="flex flex-col items-end gap-1">
+                        <div className="flex flex-wrap items-center gap-2 bg-slate-800 p-2 rounded-lg border border-slate-700">
+                            <input 
+                            type="text" 
+                            placeholder="API Token" 
+                            className="bg-slate-700 text-white px-3 py-1.5 rounded text-sm outline-none focus:ring-2 focus:ring-blue-500 w-32 md:w-48 transition-all"
+                            value={config.apiKey}
+                            onChange={(e) => setConfig({...config, apiKey: e.target.value})}
+                            />
+                            <input 
+                            type="text" 
+                            placeholder="Project ID (選填)" 
+                            className="bg-slate-700 text-white px-3 py-1.5 rounded text-sm outline-none focus:ring-2 focus:ring-blue-500 w-28 transition-all"
+                            value={config.projectId}
+                            onChange={(e) => setConfig({...config, projectId: e.target.value})}
+                            />
+                            <button 
+                            onClick={() => fetchData()}
+                            disabled={loading}
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-1.5 rounded text-sm font-medium flex items-center gap-2 transition-colors disabled:opacity-50 min-w-[80px] justify-center"
+                            >
+                            {loading ? <RefreshCw className="animate-spin w-4 h-4" /> : <Search className="w-4 h-4" />}
+                            {loading ? (statusMessage || '讀取中') : '分析'}
+                            </button>
+                        </div>
+                        {/* Last Updated Indicator */}
+                        {lastUpdated && (
+                            <div className="flex items-center gap-1.5 text-xs text-slate-400 mr-1">
+                                {loadedFromCache ? (
+                                    <span className="flex items-center gap-1 text-orange-300" title="資料來自快取">
+                                        <Database className="w-3 h-3" /> 快取資料
+                                    </span>
+                                ) : (
+                                    <span className="flex items-center gap-1 text-green-400">
+                                        <Zap className="w-3 h-3" /> 最新資料
+                                    </span>
+                                )}
+                                <span>
+                                    更新於: {lastUpdated.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                </span>
+                            </div>
+                        )}
                     </div>
                     </div>
                     
                     {/* URL Input (Advanced) - Width Adjusted to 95% */}
                     <div className="w-[95%] mx-auto mt-4 text-xs text-slate-500 flex flex-wrap items-center gap-4">
-                    <div className="flex items-center gap-2">
-                        <span>Target:</span>
-                        <input 
-                        type="text" 
-                        className="bg-transparent border-b border-slate-700 text-slate-400 w-64 focus:border-blue-500 outline-none"
-                        value={config.url}
-                        onChange={(e) => setConfig({...config, url: e.target.value})}
-                        />
-                    </div>
+                        <div className="flex items-center gap-2">
+                            <span>Target:</span>
+                            <input 
+                            type="text" 
+                            className="bg-transparent border-b border-slate-700 text-slate-400 w-64 focus:border-blue-500 outline-none"
+                            value={config.url}
+                            onChange={(e) => setConfig({...config, url: e.target.value})}
+                            />
+                        </div>
 
-                    <label className="flex items-center gap-1 cursor-pointer hover:text-white transition-colors">
-                        <input 
-                        type="checkbox" 
-                        checked={useProxy} 
-                        onChange={(e) => setUseProxy(e.target.checked)}
-                        className="rounded text-green-500 focus:ring-0 cursor-pointer"
-                        />
-                        <span className={useProxy ? "text-green-400 font-bold" : ""}>使用 Proxy 解決跨域問題 (CORS)</span>
-                    </label>
+                        {/* Proxy Mode Selector */}
+                        <div className="flex items-center gap-2 ml-4 bg-slate-800 px-2 py-1 rounded border border-slate-700">
+                            <label className="text-slate-400">連線模式:</label>
+                            <select 
+                                value={proxyMode} 
+                                onChange={(e) => setProxyMode(e.target.value)}
+                                className="bg-slate-700 text-white text-xs rounded border-none outline-none py-1 px-2 cursor-pointer hover:bg-slate-600"
+                            >
+                                <option value="public">公共 Proxy (公網可用)</option>
+                                <option value="direct">直連 (內網推薦/需外掛)</option>
+                                <option value="custom">自訂 Proxy (地端)</option>
+                            </select>
+                        </div>
 
-                    <div className="w-px h-4 bg-slate-700 hidden md:block"></div>
+                        {/* Custom Proxy Input (Conditional) */}
+                        {proxyMode === 'custom' && (
+                            <div className="flex items-center gap-2 ml-2 animate-fadeIn">
+                                <input 
+                                type="text" 
+                                placeholder="輸入地端 Proxy 網址 (例: http://192.168.1.50/proxy?url=)" 
+                                className="bg-slate-800 border-b border-slate-600 text-white w-80 px-2 py-1 focus:border-blue-500 outline-none placeholder-slate-500"
+                                value={customProxyUrl}
+                                onChange={(e) => setCustomProxyUrl(e.target.value)}
+                                />
+                            </div>
+                        )}
 
-                    <label className="flex items-center gap-1 cursor-pointer hover:text-white transition-colors">
-                        <input 
-                        type="checkbox" 
-                        checked={showOnlyMine} 
-                        onChange={(e) => setShowOnlyMine(e.target.checked)}
-                        className="rounded text-blue-500 focus:ring-0 cursor-pointer"
-                        />
-                        <span className={showOnlyMine ? "text-blue-400 font-bold" : ""}>僅顯示個人</span>
-                    </label>
+                        <div className="flex-1"></div>
 
-                    <div className="w-px h-4 bg-slate-700 hidden md:block"></div>
+                        {/* Auto Refresh Toggle */}
+                        <label className="flex items-center gap-1 cursor-pointer hover:text-white transition-colors">
+                            <input 
+                            type="checkbox" 
+                            checked={autoRefresh} 
+                            onChange={(e) => setAutoRefresh(e.target.checked)}
+                            className="rounded text-green-500 focus:ring-0 cursor-pointer"
+                            />
+                            <span className={autoRefresh ? "text-green-400 font-bold flex items-center gap-1" : ""}>
+                                {autoRefresh && <Timer className="w-3 h-3" />}
+                                自動更新 (5m)
+                            </span>
+                        </label>
 
-                    <label className="flex items-center gap-1 cursor-pointer">
-                        <input 
-                        type="checkbox" 
-                        checked={isDemo} 
-                        onChange={(e) => setIsDemo(e.target.checked)}
-                        className="rounded text-blue-500 focus:ring-0 cursor-pointer"
-                        />
-                        <span className={isDemo ? "text-yellow-400" : ""}>開啟模擬資料 (Demo Mode)</span>
-                    </label>
+                        <div className="w-px h-4 bg-slate-700 hidden md:block mx-2"></div>
+
+                        <label className="flex items-center gap-1 cursor-pointer hover:text-white transition-colors">
+                            <input 
+                            type="checkbox" 
+                            checked={showOnlyMine} 
+                            onChange={(e) => setShowOnlyMine(e.target.checked)}
+                            className="rounded text-blue-500 focus:ring-0 cursor-pointer"
+                            />
+                            <span className={showOnlyMine ? "text-blue-400 font-bold" : ""}>僅顯示個人</span>
+                        </label>
+
+                        <div className="w-px h-4 bg-slate-700 hidden md:block mx-2"></div>
+
+                        <label className="flex items-center gap-1 cursor-pointer">
+                            <input 
+                            type="checkbox" 
+                            checked={isDemo} 
+                            onChange={(e) => setIsDemo(e.target.checked)}
+                            className="rounded text-blue-500 focus:ring-0 cursor-pointer"
+                            />
+                            <span className={isDemo ? "text-yellow-400" : ""}>開啟模擬資料 (Demo Mode)</span>
+                        </label>
                     </div>
                 </header>
 
@@ -407,15 +605,12 @@
                     
                     {/* Error Message */}
                     {error && (
-                    <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded shadow-sm">
-                        <div className="flex items-center">
-                        <AlertCircle className="text-red-500 w-5 h-5 mr-2" />
-                        <p className="text-red-700 font-medium">發生錯誤</p>
+                    <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded shadow-sm animate-fadeIn">
+                        <div className="flex items-center mb-2">
+                            <AlertCircle className="text-red-500 w-5 h-5 mr-2" />
+                            <p className="text-red-700 font-bold text-lg">發生錯誤</p>
                         </div>
-                        <p className="text-red-600 text-sm mt-1">{error}</p>
-                        <p className="text-red-500 text-xs mt-2">
-                        提示：系統已嘗試自動切換線路但仍失敗。請確認您的 Redmine 網站可以在外網訪問，且 API Token 正確無誤。
-                        </p>
+                        <div className="text-red-700 ml-7">{error}</div>
                     </div>
                     )}
 
