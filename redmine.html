@@ -289,8 +289,9 @@
 
                     // Proxy Loop
                     const proxyProviders = [
-                        { name: 'CorsProxy.io', fn: (url) => `https://corsproxy.io/?${encodeURIComponent(url)}` },
+                        { name: 'CodeTabs', fn: (url) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}` },
                         { name: 'AllOrigins', fn: (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}` },
+                        { name: 'CorsProxy.io', fn: (url) => `https://corsproxy.io/?${encodeURIComponent(url)}` },
                     ];
 
                     let lastError = null;
