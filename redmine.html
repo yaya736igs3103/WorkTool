@@ -98,6 +98,7 @@
         const Database = (props) => <IconBase {...props}><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></IconBase>;
         const Zap = (props) => <IconBase {...props}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></IconBase>;
         const Timer = (props) => <IconBase {...props}><line x1="10" y1="2" x2="14" y2="2"></line><line x1="12" y1="14" x2="15" y2="11"></line><circle cx="12" cy="14" r="8"></circle></IconBase>;
+        const BugIcon = (props) => <IconBase {...props}><path d="m8 2 1.88 1.88" /><path d="M14.12 3.88 16 2" /><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1" /><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6" /><path d="M12 20v-9" /><path d="M6.53 9C4.6 8.8 3 7.1 3 5" /><path d="M6 13H2" /><path d="M3 21c0-2.1 1.7-3.9 3.8-4" /><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4" /><path d="M22 13h-4" /><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4" /></IconBase>;
 
         // --- Main Component ---
         const RedmineDashboard = () => {
@@ -234,11 +235,11 @@
                         const todayStr = new Date().toISOString().split('T')[0];
                         const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
                         const demoIssues = [
-                            { id: 101, status: { name: 'New' }, subject: '伺服器異常排查', assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 2, estimated_hours: 4, project: { name: 'Infra' } },
-                            { id: 102, status: { name: 'In Progress' }, subject: '前端介面優化', assigned_to: { id: 2, name: 'John Doe' }, due_date: yesterdayStr, spent_hours: 10, estimated_hours: 8, project: { name: 'Web App' } },
-                            { id: 103, status: { name: 'Feedback' }, subject: 'API文件更新', assigned_to: { id: 1, name: 'Admin User' }, due_date: null, spent_hours: 1, estimated_hours: 2, project: { name: 'Documentation' } },
-                            { id: 104, status: { name: 'New' }, subject: '資料庫遷移', assigned_to: { id: 3, name: 'Jane Smith' }, due_date: yesterdayStr, spent_hours: 0, estimated_hours: 5, project: { name: 'Backend' } },
-                            { id: 105, status: { name: 'In Progress' }, subject: '修正登入 Bug', assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 5, estimated_hours: 3, project: { name: 'Web App' } },
+                            { id: 101, status: { name: 'New' }, tracker: { name: 'Bug' }, subject: '伺服器異常排查', assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 2, estimated_hours: 4, project: { name: 'Infra' } },
+                            { id: 102, status: { name: 'In Progress' }, tracker: { name: 'Feature' }, subject: '前端介面優化', assigned_to: { id: 2, name: 'John Doe' }, due_date: yesterdayStr, spent_hours: 10, estimated_hours: 8, project: { name: 'Web App' } },
+                            { id: 103, status: { name: 'Feedback' }, tracker: { name: 'Support' }, subject: 'API文件更新', assigned_to: { id: 1, name: 'Admin User' }, due_date: null, spent_hours: 1, estimated_hours: 2, project: { name: 'Documentation' } },
+                            { id: 104, status: { name: 'New' }, tracker: { name: 'Bug' }, subject: '資料庫遷移失敗', assigned_to: { id: 3, name: 'Jane Smith' }, due_date: yesterdayStr, spent_hours: 0, estimated_hours: 5, project: { name: 'Backend' } },
+                            { id: 105, status: { name: 'In Progress' }, tracker: { name: '臭蟲' }, subject: '修正登入 Bug', assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 5, estimated_hours: 3, project: { name: 'Web App' } },
                         ];
                         setIssues(demoIssues);
                         setLastUpdated(new Date());
@@ -422,9 +423,12 @@
                 const overdue = relevantIssues.filter(i => isPast(i.due_date) && i.status.name !== '待更新');
                 const overBudget = relevantIssues.filter(i => (i.estimated_hours || 0) > 0 && (i.spent_hours || 0) > (i.estimated_hours || 0));
                 
+                // Bugs Filter: "臭蟲" or "Bug"
+                const bugs = relevantIssues.filter(i => i.tracker && (i.tracker.name === '臭蟲' || i.tracker.name === 'Bug'));
+
                 const mine = currentUser ? issues.filter(i => i.assigned_to?.id === currentUser.id) : [];
 
-                return { today, overdue, overBudget, mine };
+                return { today, overdue, overBudget, bugs, mine };
             }, [issues, currentUser, showOnlyMine]);
 
             const filteredIssues = useMemo(() => {
@@ -432,6 +436,7 @@
                 case 'today': return stats.today;
                 case 'overdue': return stats.overdue;
                 case 'overbudget': return stats.overBudget;
+                case 'bugs': return stats.bugs;
                 case 'mine': return stats.mine;
                 default: 
                     if (showOnlyMine && currentUser) {
@@ -616,7 +621,7 @@
                     )}
 
                     {/* Dashboard Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6 mb-8">
                     
                     <DashboardCard 
                         title={showOnlyMine ? "個人今天要完成" : "今天要完成"}
@@ -647,6 +652,15 @@
                     />
 
                     <DashboardCard 
+                        title={showOnlyMine ? "個人臭蟲案件" : "臭蟲 (Bug) 案件"}
+                        count={stats.bugs.length} 
+                        icon={<BugIcon className="w-6 h-6 text-rose-600" />}
+                        color="border-rose-500"
+                        isActive={activeTab === 'bugs'}
+                        onClick={() => setActiveTab('bugs')}
+                    />
+
+                    <DashboardCard 
                         title="我的案件 (全部)" 
                         count={stats.mine.length} 
                         icon={<User className="w-6 h-6 text-emerald-600" />}
@@ -664,12 +678,14 @@
                         {activeTab === 'today' && <Clock className="w-5 h-5 text-blue-600" />}
                         {activeTab === 'overdue' && <AlertCircle className="w-5 h-5 text-red-600" />}
                         {activeTab === 'overbudget' && <Activity className="w-5 h-5 text-orange-600" />}
+                        {activeTab === 'bugs' && <BugIcon className="w-5 h-5 text-rose-600" />}
                         {activeTab === 'mine' && <User className="w-5 h-5 text-emerald-600" />}
                         
                         {activeTab === 'all' ? (showOnlyMine ? '我的所有案件列表' : '所有案件列表') : 
                         activeTab === 'today' ? '今日到期案件' :
                         activeTab === 'overdue' ? '逾期未完成案件' :
-                        activeTab === 'overbudget' ? '超支預算案件' : '我的待辦事項'}
+                        activeTab === 'overbudget' ? '超支預算案件' :
+                        activeTab === 'bugs' ? '臭蟲 (Bug) 案件' : '我的待辦事項'}
                         
                         <span className="text-sm font-normal text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">
                         {filteredIssues.length}
@@ -694,6 +710,7 @@
                             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 text-sm uppercase tracking-wider">
                             <th className="p-4 font-semibold w-24">案件編號</th>
                             <th className="p-4 font-semibold">專案</th>
+                            <th className="p-4 font-semibold">追蹤標籤</th>
                             <th className="p-4 font-semibold w-32">狀態</th>
                             <th className="p-4 font-semibold">議題 (Subject)</th>
                             <th className="p-4 font-semibold">處理人員</th>
@@ -723,6 +740,9 @@
                                     </td>
                                     <td className="p-4 font-medium text-slate-600">
                                     {issue.project ? issue.project.name : '-'}
+                                    </td>
+                                    <td className="p-4 font-medium text-slate-500">
+                                    {issue.tracker ? issue.tracker.name : '-'}
                                     </td>
                                     <td className="p-4">
                                     <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getStatusColor(issue.status.name)}`}>
@@ -755,7 +775,7 @@
                             })
                             ) : (
                             <tr>
-                                <td colSpan="8" className="p-12 text-center text-slate-400">
+                                <td colSpan="9" className="p-12 text-center text-slate-400">
                                 {loading ? '正在讀取資料...' : '沒有符合條件的案件'}
                                 </td>
                             </tr>
