@@ -54,6 +54,27 @@
                 date.getFullYear() === today.getFullYear();
         };
 
+        const isThisWeek = (dateString) => {
+            if (!dateString) return false;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            
+            const date = new Date(dateString);
+            date.setHours(0, 0, 0, 0);
+
+            // 取得本週一的日期 (Day 0 是週日，所以週日要退 6 天，其他退 Day - 1 天)
+            const dayOfWeek = today.getDay();
+            const diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+            const monday = new Date(today);
+            monday.setDate(today.getDate() + diffToMonday);
+
+            // 取得本週日的日期
+            const sunday = new Date(monday);
+            sunday.setDate(monday.getDate() + 6);
+
+            return date >= monday && date <= sunday;
+        };
+
         const isPast = (dateString) => {
             if (!dateString) return false;
             const today = new Date();
@@ -92,6 +113,7 @@
         const ArrowRight = (props) => <IconBase {...props}><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></IconBase>;
         const Briefcase = (props) => <IconBase {...props}><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></IconBase>;
         const Clock = (props) => <IconBase {...props}><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></IconBase>;
+        const Calendar = (props) => <IconBase {...props}><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></IconBase>;
         const RefreshCw = (props) => <IconBase {...props}><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></IconBase>;
         const Search = (props) => <IconBase {...props}><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></IconBase>;
         const User = (props) => <IconBase {...props}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></IconBase>;
@@ -234,12 +256,15 @@
                         setCurrentUser(demoUser);
                         const todayStr = new Date().toISOString().split('T')[0];
                         const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+                        const inTwoDaysStr = new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0]; // 模擬本週案件
+                        
                         const demoIssues = [
                             { id: 101, status: { name: 'New' }, tracker: { name: 'Bug' }, subject: '伺服器異常排查', assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 2, estimated_hours: 4, project: { name: 'Infra' } },
                             { id: 102, status: { name: 'In Progress' }, tracker: { name: 'Feature' }, subject: '前端介面優化', assigned_to: { id: 2, name: 'John Doe' }, due_date: yesterdayStr, spent_hours: 10, estimated_hours: 8, project: { name: 'Web App' } },
                             { id: 103, status: { name: 'Feedback' }, tracker: { name: 'Support' }, subject: 'API文件更新', assigned_to: { id: 1, name: 'Admin User' }, due_date: null, spent_hours: 1, estimated_hours: 2, project: { name: 'Documentation' } },
                             { id: 104, status: { name: 'New' }, tracker: { name: 'Bug' }, subject: '資料庫遷移失敗', assigned_to: { id: 3, name: 'Jane Smith' }, due_date: yesterdayStr, spent_hours: 0, estimated_hours: 5, project: { name: 'Backend' } },
                             { id: 105, status: { name: 'In Progress' }, tracker: { name: '臭蟲' }, subject: '修正登入 Bug', assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 5, estimated_hours: 3, project: { name: 'Web App' } },
+                            { id: 106, status: { name: 'New' }, tracker: { name: 'Feature' }, subject: '報表匯出功能', assigned_to: { id: 1, name: 'Admin User' }, due_date: inTwoDaysStr, spent_hours: 0, estimated_hours: 10, project: { name: 'Backend' } },
                         ];
                         setIssues(demoIssues);
                         setLastUpdated(new Date());
@@ -420,6 +445,7 @@
                 }
 
                 const today = relevantIssues.filter(i => isToday(i.due_date) && i.status.name !== '待更新');
+                const thisWeek = relevantIssues.filter(i => isThisWeek(i.due_date) && i.status.name !== '待更新');
                 const overdue = relevantIssues.filter(i => isPast(i.due_date) && i.status.name !== '待更新');
                 const overBudget = relevantIssues.filter(i => (i.estimated_hours || 0) > 0 && (i.spent_hours || 0) > (i.estimated_hours || 0));
                 
@@ -428,12 +454,13 @@
 
                 const mine = currentUser ? issues.filter(i => i.assigned_to?.id === currentUser.id) : [];
 
-                return { today, overdue, overBudget, bugs, mine };
+                return { today, thisWeek, overdue, overBudget, bugs, mine };
             }, [issues, currentUser, showOnlyMine]);
 
             const filteredIssues = useMemo(() => {
                 switch (activeTab) {
                 case 'today': return stats.today;
+                case 'thisWeek': return stats.thisWeek;
                 case 'overdue': return stats.overdue;
                 case 'overbudget': return stats.overBudget;
                 case 'bugs': return stats.bugs;
@@ -621,7 +648,7 @@
                     )}
 
                     {/* Dashboard Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6 mb-8">
+                    <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-6 gap-6 mb-8">
                     
                     <DashboardCard 
                         title={showOnlyMine ? "個人今天要完成" : "今天要完成"}
@@ -630,6 +657,15 @@
                         color="border-blue-500"
                         isActive={activeTab === 'today'}
                         onClick={() => setActiveTab('today')}
+                    />
+
+                    <DashboardCard 
+                        title={showOnlyMine ? "個人本週要完成" : "本週要完成"}
+                        count={stats.thisWeek.length} 
+                        icon={<Calendar className="w-6 h-6 text-indigo-600" />}
+                        color="border-indigo-500"
+                        isActive={activeTab === 'thisWeek'}
+                        onClick={() => setActiveTab('thisWeek')}
                     />
                     
                     <DashboardCard 
@@ -676,6 +712,7 @@
                     <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
                         {activeTab === 'all' && <Briefcase className="w-5 h-5" />}
                         {activeTab === 'today' && <Clock className="w-5 h-5 text-blue-600" />}
+                        {activeTab === 'thisWeek' && <Calendar className="w-5 h-5 text-indigo-600" />}
                         {activeTab === 'overdue' && <AlertCircle className="w-5 h-5 text-red-600" />}
                         {activeTab === 'overbudget' && <Activity className="w-5 h-5 text-orange-600" />}
                         {activeTab === 'bugs' && <BugIcon className="w-5 h-5 text-rose-600" />}
@@ -683,6 +720,7 @@
                         
                         {activeTab === 'all' ? (showOnlyMine ? '我的所有案件列表' : '所有案件列表') : 
                         activeTab === 'today' ? '今日到期案件' :
+                        activeTab === 'thisWeek' ? '本週到期案件' :
                         activeTab === 'overdue' ? '逾期未完成案件' :
                         activeTab === 'overbudget' ? '超支預算案件' :
                         activeTab === 'bugs' ? '臭蟲 (Bug) 案件' : '我的待辦事項'}
