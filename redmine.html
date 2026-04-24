@@ -259,12 +259,12 @@
                         const inTwoDaysStr = new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0]; // 模擬本週案件
                         
                         const demoIssues = [
-                            { id: 101, status: { name: 'New' }, tracker: { name: 'Bug' }, subject: '伺服器異常排查', assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 2, estimated_hours: 4, project: { name: 'Infra' } },
-                            { id: 102, status: { name: 'In Progress' }, tracker: { name: 'Feature' }, subject: '前端介面優化', assigned_to: { id: 2, name: 'John Doe' }, due_date: yesterdayStr, spent_hours: 10, estimated_hours: 8, project: { name: 'Web App' } },
-                            { id: 103, status: { name: 'Feedback' }, tracker: { name: 'Support' }, subject: 'API文件更新', assigned_to: { id: 1, name: 'Admin User' }, due_date: null, spent_hours: 1, estimated_hours: 2, project: { name: 'Documentation' } },
-                            { id: 104, status: { name: 'New' }, tracker: { name: 'Bug' }, subject: '資料庫遷移失敗', assigned_to: { id: 3, name: 'Jane Smith' }, due_date: yesterdayStr, spent_hours: 0, estimated_hours: 5, project: { name: 'Backend' } },
-                            { id: 105, status: { name: 'In Progress' }, tracker: { name: '臭蟲' }, subject: '修正登入 Bug', assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 5, estimated_hours: 3, project: { name: 'Web App' } },
-                            { id: 106, status: { name: 'New' }, tracker: { name: 'Feature' }, subject: '報表匯出功能', assigned_to: { id: 1, name: 'Admin User' }, due_date: inTwoDaysStr, spent_hours: 0, estimated_hours: 10, project: { name: 'Backend' } },
+                            { id: 101, status: { name: 'New' }, tracker: { name: 'Bug' }, subject: '伺服器異常排查', author: { id: 1, name: 'Admin User' }, assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 2, estimated_hours: 4, project: { name: 'Infra' } },
+                            { id: 102, status: { name: 'In Progress' }, tracker: { name: 'Feature' }, subject: '前端介面優化 (隱藏測試)', author: { id: 2, name: 'John Doe' }, assigned_to: { id: 2, name: 'John Doe' }, due_date: yesterdayStr, spent_hours: 10, estimated_hours: 8, project: { name: 'Web App' } },
+                            { id: 103, status: { name: 'Feedback' }, tracker: { name: 'Support' }, subject: 'API文件更新', author: { id: 3, name: 'Jane Smith' }, assigned_to: { id: 1, name: 'Admin User' }, due_date: null, spent_hours: 1, estimated_hours: 2, project: { name: 'Documentation' } },
+                            { id: 104, status: { name: 'New' }, tracker: { name: 'Bug' }, subject: '資料庫遷移失敗', author: { id: 1, name: 'Admin User' }, assigned_to: { id: 3, name: 'Jane Smith' }, due_date: yesterdayStr, spent_hours: 0, estimated_hours: 5, project: { name: 'Backend' } },
+                            { id: 105, status: { name: 'In Progress' }, tracker: { name: '臭蟲' }, subject: '修正登入 Bug', author: { id: 2, name: 'John Doe' }, assigned_to: { id: 1, name: 'Admin User' }, due_date: todayStr, spent_hours: 5, estimated_hours: 3, project: { name: 'Web App' } },
+                            { id: 106, status: { name: 'New' }, tracker: { name: 'Feature' }, subject: '報表匯出功能', author: { id: 3, name: 'Jane Smith' }, assigned_to: { id: 1, name: 'Admin User' }, due_date: inTwoDaysStr, spent_hours: 0, estimated_hours: 10, project: { name: 'Backend' } },
                         ];
                         setIssues(demoIssues);
                         setLastUpdated(new Date());
@@ -438,10 +438,32 @@
 
 
             // Filter Logic
+            const baseProcessedIssues = useMemo(() => {
+                if (!currentUser) return issues;
+                
+                return issues.filter(issue => {
+                    const authorId = issue.author?.id;
+                    const assigneeId = issue.assigned_to?.id;
+                    
+                    // 如果作者有存在 processing (也就是作者等於處理人員)
+                    const isAuthorProcessing = authorId && assigneeId && authorId === assigneeId;
+                    
+                    // 處理人員是否是我
+                    const isMeProcessing = assigneeId === currentUser.id;
+
+                    // 條件：如果作者等於處理人員，且處理人員不是我，則不列出
+                    if (isAuthorProcessing && !isMeProcessing) {
+                        return false;
+                    }
+                    
+                    return true;
+                });
+            }, [issues, currentUser]);
+
             const stats = useMemo(() => {
-                let relevantIssues = issues;
+                let relevantIssues = baseProcessedIssues;
                 if (showOnlyMine && currentUser) {
-                relevantIssues = issues.filter(i => i.assigned_to?.id === currentUser.id);
+                    relevantIssues = relevantIssues.filter(i => i.assigned_to?.id === currentUser.id);
                 }
 
                 const today = relevantIssues.filter(i => isToday(i.due_date) && i.status.name !== '待更新');
@@ -452,10 +474,10 @@
                 // Bugs Filter: "臭蟲" or "Bug"
                 const bugs = relevantIssues.filter(i => i.tracker && (i.tracker.name === '臭蟲' || i.tracker.name === 'Bug'));
 
-                const mine = currentUser ? issues.filter(i => i.assigned_to?.id === currentUser.id) : [];
+                const mine = currentUser ? baseProcessedIssues.filter(i => i.assigned_to?.id === currentUser.id) : [];
 
                 return { today, thisWeek, overdue, overBudget, bugs, mine };
-            }, [issues, currentUser, showOnlyMine]);
+            }, [baseProcessedIssues, currentUser, showOnlyMine]);
 
             const filteredIssues = useMemo(() => {
                 switch (activeTab) {
@@ -467,11 +489,11 @@
                 case 'mine': return stats.mine;
                 default: 
                     if (showOnlyMine && currentUser) {
-                        return issues.filter(i => i.assigned_to?.id === currentUser.id);
+                        return baseProcessedIssues.filter(i => i.assigned_to?.id === currentUser.id);
                     }
-                    return issues;
+                    return baseProcessedIssues;
                 }
-            }, [activeTab, issues, stats, showOnlyMine, currentUser]);
+            }, [activeTab, baseProcessedIssues, stats, showOnlyMine, currentUser]);
 
             // --- Sub Component: Dashboard Card ---
             const DashboardCard = ({ title, count, icon, color, isActive, onClick, bgColor }) => (
