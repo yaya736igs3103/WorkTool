@@ -295,7 +295,7 @@
 
                     if (proxyMode === 'direct') {
                         try {
-                            return await performFetch(targetUrl, { headers: { 'X-Redmine-API-Key': cleanApiKey } });
+                            return await performFetch(targetUrl);
                         } catch (e) {
                             if (e.name === 'TypeError' || e.message.includes('Failed to fetch')) throw new Error('CORS_ERROR');
                             throw e;
